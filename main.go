@@ -30,6 +30,7 @@ func main() {
 	authenticatedRoutes := r.PathPrefix("/user").Subrouter()
 	authenticatedRoutes.Use(middleware.AuthMiddleware)
 	authenticatedRoutes.HandleFunc("/profile", controller.GetUserProfileHandler).Methods("GET")
+	authenticatedRoutes.HandleFunc("/enter_data", controller.EnterDataHandler).Methods("POST")
 
 	fmt.Println("Server started on port 8080")
 	log.Fatal(http.ListenAndServe(":8080", r))

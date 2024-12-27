@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"backend/model"
 	"backend/utils"
 	"context"
 	"encoding/json"
@@ -11,16 +10,17 @@ import (
 
 // EnterDataRequest structure for the request body
 type EnterDataRequest struct {
-	UID         string `json:"uid"`
 	PhoneNumber string `json:"phone_number"`
 	Name        string `json:"name"`
 	Gender      string `json:"gender"` // 'male', 'female', 'others'
 	City        string `json:"city"`
-	ChildDOB    string `json:"child_dob"` // Change to string
 }
 
 // EnterDataHandler function to update user data
 func EnterDataHandler(w http.ResponseWriter, r *http.Request) {
+	// Get UID from the context set by the AuthMiddleware
+	uid := r.Context().Value("uid").(string)
+
 	var req EnterDataRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -36,7 +36,7 @@ func EnterDataHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if the phone number is unique
-	existingUsers := make(map[string]model.User) // Use a map to hold existing users
+	existingUsers := make(map[string]interface{}) // Use a map to hold existing users
 	err := utils.FirebaseDB.NewRef("users").OrderByChild("phone_number").EqualTo(req.PhoneNumber).Get(context.Background(), &existingUsers)
 	if err != nil {
 		http.Error(w, "Failed to check phone number uniqueness", http.StatusInternalServerError)
@@ -51,9 +51,6 @@ func EnterDataHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve the UID from the context or login response (assumed to be stored in the request context)
-	uid := req.UID // Use the email ID as the UID
-
 	// Update the user's details in Firebase Database
 	userRef := utils.FirebaseDB.NewRef("users/" + uid)
 	if err := userRef.Update(context.Background(), map[string]interface{}{
@@ -61,7 +58,6 @@ func EnterDataHandler(w http.ResponseWriter, r *http.Request) {
 		"name":         req.Name,
 		"gender":       req.Gender,
 		"city":         req.City,
-		"child_dob":    req.ChildDOB,
 	}); err != nil {
 		http.Error(w, "Failed to update user data", http.StatusInternalServerError)
 		log.Printf("Error updating user data: %v\n", err) // Log the error

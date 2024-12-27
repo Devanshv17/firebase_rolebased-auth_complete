@@ -3,27 +3,16 @@ package controller
 import (
 	"backend/model"
 	"backend/utils"
-	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"log"
 	"net/http"
-	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
 
 // LoginHandler generates token and sends it to the client
 func LoginHandler(w http.ResponseWriter, r *http.Request) {
-	// Read the request body
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "Failed to read request body", http.StatusInternalServerError)
-		return
-	}
-	r.Body = io.NopCloser(bytes.NewBuffer(body))
-
 	var user model.User
 	if err := json.NewDecoder(r.Body).Decode(&user); err != nil {
 		http.Error(w, "Bad Request", http.StatusBadRequest)
@@ -47,43 +36,36 @@ func LoginHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Retrieve hashed password from Firebase Database
-	var hashedPassword string
-	err = utils.FirebaseDB.NewRef("users/"+u.UID+"/hashed_password").Get(context.Background(), &hashedPassword)
-	if err != nil || hashedPassword == "" {
-		http.Error(w, "Failed to retrieve user password", http.StatusInternalServerError)
+	// Retrieve user details (hashed_password and role) in a single Firebase call
+	type UserDetails struct {
+		HashedPassword string `json:"hashed_password"`
+		Role           string `json:"role"`
+	}
+
+	var userDetails UserDetails
+	err = utils.FirebaseDB.NewRef("users/"+u.UID).Get(context.Background(), &userDetails)
+	if err != nil || userDetails.HashedPassword == "" || userDetails.Role == "" {
+		http.Error(w, "Failed to retrieve user details", http.StatusInternalServerError)
 		return
 	}
 
-	// Trim the input password to avoid issues with whitespace
-	inputPassword := strings.TrimSpace(user.Password)
-
 	// Compare stored hashed password with the provided password
-	if err := bcrypt.CompareHashAndPassword([]byte(hashedPassword), []byte(inputPassword)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(userDetails.HashedPassword), []byte(user.Password)); err != nil {
 		http.Error(w, "Invalid credentials", http.StatusUnauthorized)
 		return
 	}
 
-	// Retrieve user's role from Firebase Database
-	var role string
-	err = utils.FirebaseDB.NewRef("users/"+u.UID+"/role").Get(context.Background(), &role)
-	if err != nil || role == "" {
-		http.Error(w, "Failed to retrieve user role", http.StatusInternalServerError)
-		return
-	}
-
 	// Generate JWT token for the user with UID and role
-	token, err := utils.GenerateJWT(u.UID, role)
+	token, err := utils.GenerateJWT(u.UID, userDetails.Role)
 	if err != nil {
 		http.Error(w, "Error generating token", http.StatusInternalServerError)
 		return
 	}
 
-	// Prepare response payload with UID, role, and the generated token
+	// Prepare response payload
 	response := map[string]interface{}{
-		"user_id":   u.UID,
-		"role":      role,
-		"jwt_token": token, // Send JWT token back to the client
+		"role":      userDetails.Role,
+		"jwt_token": token,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
